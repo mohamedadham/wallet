@@ -1,0 +1,64 @@
+# One-command run:   docker compose up --build
+# Run tests:         docker compose run --rm test
+#
+# `app` waits for `postgres` to pass its healthcheck, then runs migrations and
+# starts. Everything is wired by env vars; no secrets are baked into images.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: transfers
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app -d transfers']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      target: runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      STORE_DRIVER: postgres
+      DATABASE_URL: postgres://app:app@postgres:5432/transfers
+      PORT: '3000'
+      LOG_LEVEL: info
+    ports:
+      - '3000:3000'
+    # Apply migrations (compiled JS, no ts-node needed) then boot the API.
+    command: >
+      sh -c "node node_modules/typeorm/cli.js migration:run
+      -d dist/src/transfers/adapters/postgres/data-source.js
+      && node dist/src/main.js"
+
+  # Test runner. Uses the build stage (dev deps + sources present) and points at
+  # the same Postgres so the contract + concurrency suites run against a real DB.
+  # Started only on demand (`docker compose run --rm test`), not on `up`.
+  test:
+    build:
+      context: .
+      target: build
+    profiles: ['test']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: test
+      STORE_DRIVER: postgres
+      DATABASE_URL: postgres://app:app@postgres:5432/transfers
+      TEST_DATABASE_URL: postgres://app:app@postgres:5432/transfers
+    command: npm test
+
+volumes:
+  pgdata:
