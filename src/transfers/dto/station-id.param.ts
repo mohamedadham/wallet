@@ -1,11 +1,8 @@
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
-/**
- * Validates/escapes the path param so a station_id can never be concatenated
- * raw into a query. The adapters use parameterised queries regardless, but
- * validating at the edge keeps the SQL-injection surface at zero. (Security §)
- */
 export class StationIdParam {
+  @ApiProperty({ example: 'S1', description: 'The station identifier' })
   @IsString()
   @IsNotEmpty()
   @MaxLength(255)
